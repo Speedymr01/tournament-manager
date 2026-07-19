@@ -1,0 +1,15 @@
+# Build output
+target/
+dependency-reduced-pom.xml
+
+# IDE files
+.vscode/
+.idea/
+*.iml
+*.ipr
+*.iws
+*.class
+
+# OS files
+Thumbs.db
+.DS_Store

@@ -1,0 +1,24 @@
+name: TournamentManager
+version: ${project.version}
+main: com.tdm.tournament.TournamentPlugin
+api-version: '1.21'
+author: Speedymr01
+description: Orchestrates tournaments using TDM and Spleef APIs
+
+softdepend:
+  - TeamDeathmatch
+  - Spleef
+
+commands:
+  tournament:
+    description: Main tournament command
+    usage: /<command> [create|join|leave|start|cancel|view]
+    aliases: [tourney, t]
+
+permissions:
+  tournament.admin:
+    description: Allows using admin tournament commands
+    default: op
+  tournament.player:
+    description: Allows joining and viewing tournaments
+    default: true
