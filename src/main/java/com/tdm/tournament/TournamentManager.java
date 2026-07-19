@@ -1,33 +1,63 @@
 package com.tdm.tournament;
 
+import com.tdm.tournament.api.MinigameProvider;
 import com.tdm.tournament.bracket.BracketGenerator;
 import com.tdm.tournament.model.*;
 import com.tdm.tournament.swiss.SwissSystem;
 import org.bukkit.entity.Player;
 
 import java.util.*;
+import java.util.stream.Collectors;
 
 /**
  * Core logic for tournament creation, lifecycle, and match delegation.
- * This is the central facade used by commands, GUIs, and listeners.
+ * Works with any {@link MinigameProvider} — no hardcoded minigame names.
  */
 public class TournamentManager {
 
     private final TournamentPlugin plugin;
-    private final Map<UUID, Tournament> tournaments;        // id -> tournament
-    private final Map<UUID, Integer> activeMatches;          // team UUID -> match id (teams in active games)
+    private final Map<UUID, Tournament> tournaments;
+    private final Map<UUID, String> activeMatches;       // team UUID -> matchId (string)
+    private List<MinigameProvider> providers;
 
-    public TournamentManager(TournamentPlugin plugin) {
+    public TournamentManager(TournamentPlugin plugin, List<MinigameProvider> providers) {
         this.plugin = plugin;
         this.tournaments = new HashMap<>();
         this.activeMatches = new HashMap<>();
+        this.providers = new ArrayList<>(providers);
+    }
+
+    public void refreshProviders(List<MinigameProvider> providers) {
+        this.providers = new ArrayList<>(providers);
+    }
+
+    // ==================== Provider Queries ====================
+
+    public List<MinigameProvider> getProviders() {
+        return Collections.unmodifiableList(providers);
+    }
+
+    public Optional<MinigameProvider> getProvider(String name) {
+        for (MinigameProvider p : providers) {
+            if (p.getPluginName().equalsIgnoreCase(name)
+                    || p.getDisplayName().equalsIgnoreCase(name)) {
+                return Optional.of(p);
+            }
+        }
+        return Optional.empty();
+    }
+
+    public Set<String> getProviderNames() {
+        return providers.stream()
+                .map(MinigameProvider::getPluginName)
+                .collect(Collectors.toSet());
     }
 
     // ==================== Tournament CRUD ====================
 
     public Tournament createTournament(String name, TournamentFormat format,
-                                       GameType gameType, int maxTeams, int teamSize) {
-        Tournament t = new Tournament(name, format, gameType, maxTeams, teamSize);
+                                       String providerName, int maxTeams, int teamSize) {
+        Tournament t = new Tournament(name, format, providerName, maxTeams, teamSize);
         if (format == TournamentFormat.SWISS) {
             t.setSwissRounds(SwissSystem.calculateRounds(maxTeams));
         }
@@ -48,21 +78,15 @@ public class TournamentManager {
     }
 
     public List<Tournament> getOpenTournaments() {
-        List<Tournament> result = new ArrayList<>();
-        for (Tournament t : tournaments.values()) {
-            if (t.getState() == TournamentState.OPEN) result.add(t);
-        }
-        return result;
+        return tournaments.values().stream()
+                .filter(t -> t.getState() == TournamentState.OPEN)
+                .collect(Collectors.toList());
     }
 
     public List<Tournament> getTournamentsForPlayer(UUID playerId) {
-        List<Tournament> result = new ArrayList<>();
-        for (Tournament t : tournaments.values()) {
-            if (t.isPlayerInTournament(playerId)) {
-                result.add(t);
-            }
-        }
-        return result;
+        return tournaments.values().stream()
+                .filter(t -> t.isPlayerInTournament(playerId))
+                .collect(Collectors.toList());
     }
 
     // ==================== Team Management ====================
@@ -73,20 +97,9 @@ public class TournamentManager {
         if (t.getState() != TournamentState.OPEN) return false;
         if (t.isPlayerInTournament(player.getUniqueId())) return false;
 
-        // Check if we need to create a new team or join an existing one
-        if (t.getTeamSize() == 1) {
-            // Solo: create a new team for this player
-            String name = (teamName != null && !teamName.isEmpty()) ? teamName : player.getName();
-            TournamentTeam team = new TournamentTeam(name, player.getUniqueId());
-            return t.addTeam(team);
-        } else {
-            // Team mode: look for a team with space that the player can join
-            // In a GUI, players would typically create named teams
-            // For simplicity, create a new team
-            String name = (teamName != null && !teamName.isEmpty()) ? teamName : player.getName() + "'s Team";
-            TournamentTeam team = new TournamentTeam(name, player.getUniqueId());
-            return t.addTeam(team);
-        }
+        String name = (teamName != null && !teamName.isEmpty()) ? teamName : player.getName();
+        TournamentTeam team = new TournamentTeam(name, player.getUniqueId());
+        return t.addTeam(team);
     }
 
     public boolean leaveTournament(UUID tournamentId, Player player) {
@@ -98,8 +111,6 @@ public class TournamentManager {
         if (team == null) return false;
 
         team.removeMember(player.getUniqueId());
-
-        // Remove team if empty
         if (team.getSize() == 0) {
             t.removeTeam(team.getId());
         }
@@ -112,10 +123,15 @@ public class TournamentManager {
         Tournament t = getTournament(tournamentId);
         if (t == null || !t.canStart()) return false;
 
+        // Verify the provider is still available
+        Optional<MinigameProvider> providerOpt = getProvider(t.getProviderName());
+        if (providerOpt.isEmpty() || !providerOpt.get().isEnabled()) {
+            return false;
+        }
+
         t.setState(TournamentState.ACTIVE);
         t.setStartedTime(System.currentTimeMillis());
 
-        // Generate the bracket or first swiss round
         if (t.getFormat() == TournamentFormat.SINGLE_ELIMINATION) {
             BracketGenerator.generateBracket(t);
         } else {
@@ -132,6 +148,13 @@ public class TournamentManager {
             return false;
         }
 
+        // Cancel any active matches
+        for (Match m : t.getMatches()) {
+            if (m.getStatus() == MatchStatus.IN_PROGRESS) {
+                cancelMatch(t.getId(), m.getId());
+            }
+        }
+
         t.setState(TournamentState.CANCELLED);
         t.setEndedTime(System.currentTimeMillis());
         return true;
@@ -141,7 +164,6 @@ public class TournamentManager {
         Tournament t = getTournament(tournamentId);
         if (t == null) return false;
 
-        // Determine winner based on format
         UUID winnerId;
         if (t.getFormat() == TournamentFormat.SINGLE_ELIMINATION) {
             winnerId = t.getWinnerTeamId();
@@ -155,105 +177,204 @@ public class TournamentManager {
         return true;
     }
 
-    // ==================== Match Delegation ====================
+    // ==================== Match Delegation via Providers ====================
 
     /**
-     * Mark a match as in-progress (delegated to TDM/Spleef).
+     * Delegate a match to its minigame provider to start playing.
      */
-    public void startMatch(UUID tournamentId, int matchId) {
+    public boolean startMatch(UUID tournamentId, int matchId) {
         Tournament t = getTournament(tournamentId);
-        if (t == null) return;
+        if (t == null) return false;
 
         Match match = t.getMatch(matchId);
-        if (match == null) return;
+        if (match == null) return false;
+
+        Optional<MinigameProvider> providerOpt = getProvider(t.getProviderName());
+        if (providerOpt.isEmpty() || !providerOpt.get().isEnabled()) return false;
+
+        MinigameProvider provider = providerOpt.get();
+
+        // Get players for each team
+        TournamentTeam team1 = t.getTeam(match.getTeam1Id());
+        TournamentTeam team2 = t.getTeam(match.getTeam2Id());
+        if (team1 == null || team2 == null) return false;
+
+        List<UUID> team1Players = team1.getMembers();
+        List<UUID> team2Players = team2.getMembers();
+
+        // Pick an arena (first available, or from match preference)
+        List<String> arenas = provider.getAvailableArenas();
+        if (arenas.isEmpty()) {
+            plugin.getLogger().warning("Provider " + provider.getPluginName() + " has no arenas available!");
+            return false;
+        }
+
+        String arena = arenas.get(0); // simple: first arena
+        String matchIdStr = tournamentId + ":" + matchId;
+
+        boolean created = provider.createMatch(arena, team1Players, team2Players, matchIdStr);
+        if (!created) return false;
 
         match.setStatus(MatchStatus.IN_PROGRESS);
-        activeMatches.put(match.getTeam1Id(), matchId);
-        activeMatches.put(match.getTeam2Id(), matchId);
+        match.setArenaName(arena);
+        activeMatches.put(match.getTeam1Id(), matchIdStr);
+        activeMatches.put(match.getTeam2Id(), matchIdStr);
+        return true;
     }
 
     /**
-     * Complete a match with a winning team.
-     * Handles bracket advancement or swiss standings update.
+     * Called by {@link com.tdm.tournament.listener.MatchEndListener} when a
+     * {@link com.tdm.tournament.api.MatchCompleteEvent} is received.
      */
-    public void completeMatch(UUID tournamentId, int matchId, UUID winnerTeamId) {
+    public void completeMatch(String matchIdStr, List<UUID> winningPlayers, boolean tie) {
+        // Parse the match ID string: "tournamentId:matchId"
+        String[] parts = matchIdStr.split(":", 2);
+        if (parts.length != 2) return;
+
+        UUID tournamentId;
+        int matchId;
+        try {
+            tournamentId = UUID.fromString(parts[0]);
+            matchId = Integer.parseInt(parts[1]);
+        } catch (IllegalArgumentException e) {
+            return;
+        }
+
         Tournament t = getTournament(tournamentId);
         if (t == null) return;
 
         Match match = t.getMatch(matchId);
         if (match == null) return;
 
-        match.setWinnerId(winnerTeamId);
-        match.setStatus(MatchStatus.FINISHED);
-
-        // Remove from active matches
+        // Clean up active match tracking
         activeMatches.remove(match.getTeam1Id());
         activeMatches.remove(match.getTeam2Id());
 
-        // Format-specific handling
-        if (t.getFormat() == TournamentFormat.SINGLE_ELIMINATION) {
-            Match nextMatch = BracketGenerator.advanceWinner(t, matchId);
+        if (tie || winningPlayers.isEmpty()) {
+            // Tie — no winner advances
+            match.setStatus(MatchStatus.FINISHED);
+            plugin.getLogger().info("Match " + matchId + " in " + t.getName() + " ended in a tie.");
+            return;
+        }
 
-            // Check if tournament is over
+        // Determine which team won based on the winning players
+        UUID winnerId = determineWinnerTeam(t, match, winningPlayers);
+        if (winnerId == null) {
+            plugin.getLogger().warning("Could not determine winning team for match " + matchId);
+            match.setStatus(MatchStatus.FINISHED);
+            return;
+        }
+
+        match.setWinnerId(winnerId);
+        match.setStatus(MatchStatus.FINISHED);
+
+        // Format-specific advancement
+        if (t.getFormat() == TournamentFormat.SINGLE_ELIMINATION) {
+            BracketGenerator.advanceWinner(t, matchId);
             if (BracketGenerator.isComplete(t)) {
                 finishTournament(tournamentId);
             }
+        } else if (t.getFormat() == TournamentFormat.SWISS) {
+            checkSwissRoundComplete(t);
         }
 
-        // Check if all pending matches in the current round are done (Swiss)
-        if (t.getFormat() == TournamentFormat.SWISS) {
-            boolean roundComplete = true;
-            int maxRound = t.getMaxRound();
-            for (Match m : t.getRoundMatches(maxRound)) {
-                if (m.getStatus() != MatchStatus.FINISHED) {
-                    roundComplete = false;
+        plugin.getLogger().info("Match " + matchId + " in " + t.getName() + " completed.");
+    }
+
+    private UUID determineWinnerTeam(Tournament t, Match match, List<UUID> winningPlayers) {
+        // Check which team's members match the winning players
+        for (UUID teamId : List.of(match.getTeam1Id(), match.getTeam2Id())) {
+            if (teamId == null) continue;
+            TournamentTeam team = t.getTeam(teamId);
+            if (team == null) continue;
+
+            boolean allWinners = true;
+            for (UUID memberId : team.getMembers()) {
+                if (!winningPlayers.contains(memberId)) {
+                    allWinners = false;
                     break;
                 }
             }
+            if (allWinners && !team.getMembers().isEmpty()) {
+                return team.getId();
+            }
+        }
 
-            if (roundComplete) {
-                if (SwissSystem.isComplete(t)) {
-                    finishTournament(tournamentId);
-                } else {
-                    // Generate next round
-                    SwissSystem.generateRound(t);
-                }
+        // Fallback: first winning player's team
+        if (!winningPlayers.isEmpty()) {
+            TournamentTeam team = t.getTeamByPlayer(winningPlayers.get(0));
+            if (team != null && (team.getId().equals(match.getTeam1Id())
+                    || team.getId().equals(match.getTeam2Id()))) {
+                return team.getId();
+            }
+        }
+
+        return null;
+    }
+
+    private void checkSwissRoundComplete(Tournament t) {
+        int maxRound = t.getMaxRound();
+        boolean roundComplete = true;
+        for (Match m : t.getRoundMatches(maxRound)) {
+            if (m.getStatus() != MatchStatus.FINISHED) {
+                roundComplete = false;
+                break;
+            }
+        }
+
+        if (roundComplete) {
+            if (SwissSystem.isComplete(t)) {
+                finishTournament(t.getId());
+            } else {
+                SwissSystem.generateRound(t);
             }
         }
     }
 
     /**
-     * Get the match a team is currently playing in, or null.
+     * Cancel a match via its provider.
      */
+    private void cancelMatch(UUID tournamentId, int matchId) {
+        Tournament t = getTournament(tournamentId);
+        if (t == null) return;
+
+        Match match = t.getMatch(matchId);
+        if (match == null) return;
+
+        String matchIdStr = tournamentId + ":" + matchId;
+        Optional<MinigameProvider> providerOpt = getProvider(t.getProviderName());
+        providerOpt.ifPresent(p -> p.cancelMatch(matchIdStr));
+
+        match.setStatus(MatchStatus.PENDING);
+        activeMatches.remove(match.getTeam1Id());
+        activeMatches.remove(match.getTeam2Id());
+    }
+
+    // ==================== Queries ====================
+
     public Match getActiveMatchForTeam(UUID tournamentId, UUID teamId) {
         Tournament t = getTournament(tournamentId);
         if (t == null) return null;
 
-        Integer matchId = activeMatches.get(teamId);
-        if (matchId == null) return null;
+        String matchIdStr = activeMatches.get(teamId);
+        if (matchIdStr == null) return null;
 
-        return t.getMatch(matchId);
+        for (Match m : t.getMatches()) {
+            String expected = tournamentId + ":" + m.getId();
+            if (expected.equals(matchIdStr)) return m;
+        }
+        return null;
     }
 
-    /**
-     * Get all currently in-progress matches for a tournament.
-     */
     public List<Match> getActiveMatches(UUID tournamentId) {
         Tournament t = getTournament(tournamentId);
         if (t == null) return Collections.emptyList();
 
-        List<Match> result = new ArrayList<>();
-        for (Match m : t.getMatches()) {
-            if (m.getStatus() == MatchStatus.IN_PROGRESS) {
-                result.add(m);
-            }
-        }
-        return result;
+        return t.getMatches().stream()
+                .filter(m -> m.getStatus() == MatchStatus.IN_PROGRESS)
+                .collect(Collectors.toList());
     }
 
-    /**
-     * Get matches ready to be started for a tournament.
-     */
     public List<Match> getReadyMatches(UUID tournamentId) {
         Tournament t = getTournament(tournamentId);
         if (t == null) return Collections.emptyList();
@@ -265,22 +386,15 @@ public class TournamentManager {
         }
     }
 
-    // ==================== Player Queries ====================
-
-    /**
-     * Get the next match a player needs to play in their tournament.
-     */
     public Match getNextMatchForPlayer(UUID playerId) {
         for (Tournament t : tournaments.values()) {
             if (t.getState() != TournamentState.ACTIVE) continue;
             TournamentTeam team = t.getTeamByPlayer(playerId);
             if (team == null) continue;
 
-            // Check if team is in an active match
             Match active = getActiveMatchForTeam(t.getId(), team.getId());
             if (active != null) return active;
 
-            // Check for pending matches
             for (Match m : getReadyMatches(t.getId())) {
                 if (team.getId().equals(m.getTeam1Id()) || team.getId().equals(m.getTeam2Id())) {
                     return m;
@@ -290,9 +404,6 @@ public class TournamentManager {
         return null;
     }
 
-    /**
-     * Get all matches a player has played across all tournaments.
-     */
     public List<Match> getPlayerMatchHistory(UUID playerId) {
         List<Match> history = new ArrayList<>();
         for (Tournament t : tournaments.values()) {

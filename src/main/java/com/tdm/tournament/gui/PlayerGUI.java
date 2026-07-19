@@ -521,7 +521,7 @@ public class PlayerGUI {
 
         return makeItem(icon,
                 Component.text(t.getName(), NamedTextColor.WHITE, TextDecoration.BOLD),
-                Component.text("Format: " + formatName(t.getFormat()) + " | Game: " + t.getGameType().name(), NamedTextColor.GRAY),
+                Component.text("Format: " + formatName(t.getFormat()) + " | Game: " + t.getProviderName(), NamedTextColor.GRAY),
                 Component.text("Teams: " + t.getTeamCount() + "/" + t.getMaxTeams(), NamedTextColor.GRAY),
                 Component.text("Team Size: " + t.getTeamSize(), NamedTextColor.GRAY),
                 joined
@@ -533,7 +533,7 @@ public class PlayerGUI {
         return makeItem(Material.ENDER_EYE,
                 Component.text(t.getName(), NamedTextColor.WHITE, TextDecoration.BOLD),
                 Component.text("Format: " + formatName(t.getFormat()), NamedTextColor.GRAY),
-                Component.text("Game: " + t.getGameType().name(), NamedTextColor.GRAY),
+                Component.text("Game: " + t.getProviderName(), NamedTextColor.GRAY),
                 Component.text("Teams: " + t.getTeamCount() + "/" + t.getMaxTeams(), NamedTextColor.GRAY),
                 Component.text("Team Size: " + t.getTeamSize(), NamedTextColor.GRAY));
     }

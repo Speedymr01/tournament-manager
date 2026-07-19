@@ -6,12 +6,15 @@ import com.tdm.tournament.model.Match;
 import com.tdm.tournament.model.MatchStatus;
 import com.tdm.tournament.model.Tournament;
 import com.tdm.tournament.model.TournamentState;
+import com.tdm.tournament.model.TournamentTeam;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.player.PlayerQuitEvent;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
 
 /**
@@ -52,7 +55,13 @@ public class ConnectionListener implements Listener {
             }
 
             if (otherTeamId != null) {
-                manager.completeMatch(t.getId(), activeMatch.getId(), otherTeamId);
+                // Get winning players from the other team
+                TournamentTeam otherTeam = t.getTeam(otherTeamId);
+                List<UUID> winningPlayers = (otherTeam != null)
+                        ? new ArrayList<>(otherTeam.getMembers())
+                        : List.of();
+                String matchIdStr = t.getId() + ":" + activeMatch.getId();
+                manager.completeMatch(matchIdStr, winningPlayers, false);
                 plugin.getLogger().warning("Match " + activeMatch.getId()
                         + " in tournament " + t.getName()
                         + " forfeited: " + player.getName() + " disconnected");

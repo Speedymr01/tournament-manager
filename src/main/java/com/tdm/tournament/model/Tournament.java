@@ -10,7 +10,7 @@ public class Tournament {
     private final UUID id;
     private String name;
     private TournamentFormat format;
-    private GameType gameType;
+    private String providerName;     // name of the MinigameProvider
     private TournamentState state;
     private int maxTeams;
     private int teamSize;        // 1 = solo, 2 = duos, etc.
@@ -22,12 +22,12 @@ public class Tournament {
     private long endedTime;
     private UUID winnerTeamId;   // the champion team
 
-    public Tournament(String name, TournamentFormat format, GameType gameType,
+    public Tournament(String name, TournamentFormat format, String providerName,
                       int maxTeams, int teamSize) {
         this.id = UUID.randomUUID();
         this.name = name;
         this.format = format;
-        this.gameType = gameType;
+        this.providerName = providerName;
         this.state = TournamentState.OPEN;
         this.maxTeams = maxTeams;
         this.teamSize = teamSize;
@@ -49,8 +49,8 @@ public class Tournament {
     public TournamentFormat getFormat() { return format; }
     public void setFormat(TournamentFormat format) { this.format = format; }
 
-    public GameType getGameType() { return gameType; }
-    public void setGameType(GameType gameType) { this.gameType = gameType; }
+    public String getProviderName() { return providerName; }
+    public void setProviderName(String providerName) { this.providerName = providerName; }
 
     public TournamentState getState() { return state; }
     public void setState(TournamentState state) { this.state = state; }

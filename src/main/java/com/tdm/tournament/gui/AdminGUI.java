@@ -2,6 +2,7 @@ package com.tdm.tournament.gui;
 
 import com.tdm.tournament.TournamentManager;
 import com.tdm.tournament.TournamentPlugin;
+import com.tdm.tournament.api.MinigameProvider;
 import com.tdm.tournament.bracket.BracketGenerator;
 import com.tdm.tournament.model.*;
 import com.tdm.tournament.swiss.SwissSystem;
@@ -18,64 +19,125 @@ import org.bukkit.inventory.meta.ItemMeta;
 import java.util.*;
 
 /**
- * Admin inventory GUIs for tournament management.
- *
- * Menu structure:
- *  - Main Menu (create / manage)
- *  - Create Tournament (name, format, game type, team size, max teams, create)
- *  - Tournament List (paginated, click to manage)
- *  - Manage Tournament (info, start, cancel, bracket/standings, teams)
- *  - Bracket View (visual bracket tree)
- *  - Swiss Standings View
+ * Admin inventory GUIs — fully provider-agnostic.
+ * Minigame providers are discovered at runtime from registered
+ * {@link MinigameProvider} instances.
  */
 public class AdminGUI {
 
     private final TournamentPlugin plugin;
     private final TournamentManager manager;
+    private final List<MinigameProvider> providers;
 
-    // Map of player UUID -> creation context
     private final Map<UUID, CreateContext> createContexts = new HashMap<>();
 
     private static final Component TITLE_MAIN = Component.text("Tournament Admin", NamedTextColor.DARK_AQUA);
     private static final Component TITLE_CREATE = Component.text("Create Tournament", NamedTextColor.DARK_AQUA);
     private static final Component TITLE_MANAGE_LIST = Component.text("Manage Tournaments", NamedTextColor.DARK_AQUA);
 
-    public AdminGUI(TournamentPlugin plugin, TournamentManager manager) {
+    public AdminGUI(TournamentPlugin plugin, TournamentManager manager, List<MinigameProvider> providers) {
         this.plugin = plugin;
         this.manager = manager;
+        this.providers = providers;
     }
 
     // ======================== MAIN MENU ========================
 
     public void openMainMenu(Player player) {
         Inventory inv = Bukkit.createInventory(null, 9, TITLE_MAIN);
+
         inv.setItem(2, makeItem(Material.EMERALD_BLOCK,
                 Component.text("Create Tournament", NamedTextColor.GREEN, TextDecoration.BOLD),
                 Component.text("Set up a new tournament", NamedTextColor.GRAY)));
+
         inv.setItem(4, makeItem(Material.COMPASS,
                 Component.text("Manage Tournaments", NamedTextColor.AQUA, TextDecoration.BOLD),
                 Component.text("View and control existing tournaments", NamedTextColor.GRAY)));
-        inv.setItem(6, makeItem(Material.BARRIER,
+
+        // Installed minigames button
+        inv.setItem(6, makeInstalledMinigamesItem());
+
+        inv.setItem(8, makeItem(Material.BARRIER,
                 Component.text("Close", NamedTextColor.RED)));
 
         player.openInventory(inv);
-        plugin.setGuiHandler(player.getUniqueId(), this::handleMainMenuClick);
+        plugin.setGuiHandler(player.getUniqueId(), (p, s) -> handleMainMenuClick(p, s));
     }
 
     private boolean handleMainMenuClick(Player player, int slot) {
         switch (slot) {
             case 2 -> openCreateMenu(player);
             case 4 -> openManageTournamentsList(player);
-            case 6 -> player.closeInventory();
+            case 6 -> openInstalledMinigames(player);
+            case 8 -> player.closeInventory();
             default -> { return false; }
         }
         return true;
     }
 
+    // ======================== INSTALLED MINIGAMES ========================
+
+    private ItemStack makeInstalledMinigamesItem() {
+        List<Component> lore = new ArrayList<>();
+        if (providers.isEmpty()) {
+            lore.add(Component.text("No providers found!", NamedTextColor.RED));
+            lore.add(Component.text("Install Spleef, TDM, or similar", NamedTextColor.GRAY));
+        } else {
+            lore.add(Component.text(providers.size() + " provider(s) available", NamedTextColor.GREEN));
+            for (MinigameProvider p : providers) {
+                String arenas = p.getAvailableArenas().size() + " arena(s)";
+                lore.add(Component.text("• " + p.getDisplayName(), NamedTextColor.WHITE)
+                        .append(Component.text(" (" + arenas + ")", NamedTextColor.GRAY)));
+            }
+        }
+        return makeItem(Material.COMMAND_BLOCK,
+                Component.text("Installed Minigames", NamedTextColor.LIGHT_PURPLE, TextDecoration.BOLD),
+                lore.toArray(new Component[0]));
+    }
+
+    private void openInstalledMinigames(Player player) {
+        Inventory inv = Bukkit.createInventory(null, 27,
+                Component.text("Installed Minigames", NamedTextColor.DARK_AQUA));
+
+        if (providers.isEmpty()) {
+            inv.setItem(13, makeItem(Material.BARRIER,
+                    Component.text("No minigame providers found!", NamedTextColor.RED, TextDecoration.BOLD),
+                    Component.text("Install Spleef or TeamDeathmatch to use tournaments", NamedTextColor.GRAY)));
+        } else {
+            int slot = 10;
+            for (MinigameProvider p : providers) {
+                List<String> arenas = p.getAvailableArenas();
+                List<Component> lore = new ArrayList<>();
+                lore.add(Component.text("Plugin: " + p.getPluginName(), NamedTextColor.GRAY));
+                lore.add(Component.text("Arenas: " + (arenas.isEmpty() ? "(auto)" : String.join(", ", arenas)), NamedTextColor.GRAY));
+                lore.add(Component.text("Status: ", NamedTextColor.GRAY)
+                        .append(Component.text("Available", NamedTextColor.GREEN)));
+
+                inv.setItem(slot++, makeItem(p.getIcon(),
+                        Component.text(p.getDisplayName(), NamedTextColor.WHITE, TextDecoration.BOLD),
+                        lore.toArray(new Component[0])));
+            }
+        }
+
+        inv.setItem(26, makeItem(Material.ARROW,
+                Component.text("Back", NamedTextColor.YELLOW)));
+
+        player.openInventory(inv);
+        plugin.setGuiHandler(player.getUniqueId(), (p, s) -> {
+            if (s == 26) { openMainMenu(player); return true; }
+            return false;
+        });
+    }
+
     // ======================== CREATE TOURNAMENT ========================
 
     public void openCreateMenu(Player player) {
-        createContexts.put(player.getUniqueId(), new CreateContext());
+        if (providers.isEmpty()) {
+            player.sendMessage(Component.text("No minigame providers available! "
+                    + "Install Spleef, TeamDeathmatch, or a compatible plugin.", NamedTextColor.RED));
+            return;
+        }
+        createContexts.put(player.getUniqueId(), new CreateContext(providers));
         renderCreateMenu(player);
     }
 
@@ -85,18 +147,17 @@ public class AdminGUI {
 
         Inventory inv = Bukkit.createInventory(null, 27, TITLE_CREATE);
 
-        // Row 0: Settings
-        // Slot 10: Format selection
+        // Slot 10: Format
         inv.setItem(10, makeItem(
                 ctx.format == TournamentFormat.SINGLE_ELIMINATION ? Material.IRON_SWORD : Material.STONE_SWORD,
                 Component.text("Format: " + formatName(ctx.format), NamedTextColor.YELLOW, TextDecoration.BOLD),
                 Component.text("Click to toggle: Single Elimination / Swiss", NamedTextColor.GRAY)));
 
-        // Slot 11: Game type selection
-        inv.setItem(11, makeItem(
-                ctx.gameType == GameType.SPLEEF ? Material.SNOWBALL : Material.TIPPED_ARROW,
-                Component.text("Game Type: " + ctx.gameType.name(), NamedTextColor.YELLOW, TextDecoration.BOLD),
-                Component.text("Click to toggle: Spleef / TDM", NamedTextColor.GRAY)));
+        // Slot 11: Provider / Minigame selection
+        MinigameProvider currentProvider = ctx.providers.get(ctx.providerIndex);
+        inv.setItem(11, makeItem(currentProvider.getIcon(),
+                Component.text("Game: " + currentProvider.getDisplayName(), NamedTextColor.YELLOW, TextDecoration.BOLD),
+                Component.text("Click to cycle through installed minigames", NamedTextColor.GRAY)));
 
         // Slot 12: Team size
         inv.setItem(12, makeItem(Material.PLAYER_HEAD,
@@ -108,29 +169,30 @@ public class AdminGUI {
                 Component.text("Max Teams: " + ctx.maxTeams, NamedTextColor.YELLOW, TextDecoration.BOLD),
                 Component.text("Click to change", NamedTextColor.GRAY)));
 
-        // Slot 14: Arena (if applicable for Spleef, or just display)
+        // Slot 14: Arena info
+        MinigameProvider prov = ctx.providers.get(ctx.providerIndex);
+        String arenaInfo = prov.getAvailableArenas().isEmpty()
+                ? "Auto" : prov.getAvailableArenas().get(0);
         inv.setItem(14, makeItem(Material.MAP,
-                Component.text("Arena: " + (ctx.arenaName.isEmpty() ? "Auto" : ctx.arenaName), NamedTextColor.YELLOW, TextDecoration.BOLD),
-                Component.text("Optional: specific arena name", NamedTextColor.GRAY)));
+                Component.text("Arena: " + arenaInfo, NamedTextColor.YELLOW, TextDecoration.BOLD),
+                Component.text("Uses first available arena from provider", NamedTextColor.GRAY)));
 
-        // Row 1: Name display
+        // Slot 22: Name
         inv.setItem(22, makeItem(Material.NAME_TAG,
                 Component.text("Name: " + (ctx.name.isEmpty() ? "(not set)" : ctx.name), NamedTextColor.WHITE, TextDecoration.BOLD),
                 Component.text("Type name in chat after opening", NamedTextColor.GRAY)));
 
-        // Row 2: Create button
+        // Slot 26: Create
         inv.setItem(26, makeItem(Material.LIME_DYE,
                 Component.text("Create Tournament", NamedTextColor.GREEN, TextDecoration.BOLD),
                 Component.text("Name: " + (ctx.name.isEmpty() ? "NOT SET" : ctx.name), NamedTextColor.WHITE),
                 Component.text("Format: " + formatName(ctx.format), NamedTextColor.GRAY),
-                Component.text("Game: " + ctx.gameType.name(), NamedTextColor.GRAY),
+                Component.text("Game: " + currentProvider.getDisplayName(), NamedTextColor.GRAY),
                 Component.text("Team Size: " + ctx.teamSize + " | Max Teams: " + ctx.maxTeams, NamedTextColor.GRAY)));
 
-        // Decorative fill
         fillBorders(inv);
-
         player.openInventory(inv);
-        plugin.setGuiHandler(player.getUniqueId(), (p, slot2) -> handleCreateMenuClick(p, slot2));
+        plugin.setGuiHandler(player.getUniqueId(), (p, s) -> handleCreateMenuClick(p, s));
     }
 
     private boolean handleCreateMenuClick(Player player, int slot) {
@@ -139,46 +201,29 @@ public class AdminGUI {
 
         switch (slot) {
             case 10 -> {
-                // Toggle format
                 ctx.format = (ctx.format == TournamentFormat.SINGLE_ELIMINATION)
                         ? TournamentFormat.SWISS
                         : TournamentFormat.SINGLE_ELIMINATION;
                 renderCreateMenu(player);
             }
             case 11 -> {
-                // Toggle game type
-                ctx.gameType = (ctx.gameType == GameType.SPLEEF) ? GameType.TDM : GameType.SPLEEF;
+                ctx.providerIndex = (ctx.providerIndex + 1) % ctx.providers.size();
                 renderCreateMenu(player);
             }
             case 12 -> {
-                // Cycle team size: 1, 2, 3, 4
                 ctx.teamSize = (ctx.teamSize % 4) + 1;
                 renderCreateMenu(player);
             }
             case 13 -> {
-                // Cycle max teams: 4, 8, 16, 32, 64
                 int[] options = {4, 8, 16, 32, 64};
                 int idx = 0;
                 for (int i = 0; i < options.length; i++) {
-                    if (options[i] == ctx.maxTeams) {
-                        idx = (i + 1) % options.length;
-                        break;
-                    }
+                    if (options[i] == ctx.maxTeams) { idx = (i + 1) % options.length; break; }
                 }
                 ctx.maxTeams = options[idx];
                 renderCreateMenu(player);
             }
-            case 14 -> {
-                // Prompt for arena name in chat
-                player.closeInventory();
-                player.sendMessage(Component.text("Type the arena name in chat (or 'auto' for auto-select):", NamedTextColor.AQUA));
-                plugin.setChatInputHandler(player.getUniqueId(), input -> {
-                    ctx.arenaName = input.equalsIgnoreCase("auto") ? "" : input;
-                    renderCreateMenu(player);
-                });
-            }
             case 22 -> {
-                // Prompt for name in chat
                 player.closeInventory();
                 player.sendMessage(Component.text("Type the tournament name in chat:", NamedTextColor.AQUA));
                 plugin.setChatInputHandler(player.getUniqueId(), input -> {
@@ -187,13 +232,13 @@ public class AdminGUI {
                 });
             }
             case 26 -> {
-                // Create tournament
                 if (ctx.name.isEmpty()) {
                     player.sendMessage(Component.text("Please set a tournament name first!", NamedTextColor.RED));
                     return true;
                 }
+                MinigameProvider prov = ctx.providers.get(ctx.providerIndex);
                 Tournament t = manager.createTournament(
-                        ctx.name, ctx.format, ctx.gameType, ctx.maxTeams, ctx.teamSize);
+                        ctx.name, ctx.format, prov.getPluginName(), ctx.maxTeams, ctx.teamSize);
                 player.sendMessage(Component.text("Tournament '" + ctx.name + "' created! ID: "
                         + t.getId().toString().substring(0, 8), NamedTextColor.GREEN));
                 createContexts.remove(player.getUniqueId());
@@ -208,27 +253,24 @@ public class AdminGUI {
 
     public void openManageTournamentsList(Player player) {
         List<Tournament> all = new ArrayList<>(manager.getAllTournaments());
-        openPaginatedList(player, all, 0, true);
+        openPaginatedList(player, all, 0);
     }
 
-    private void openPaginatedList(Player player, List<Tournament> tournaments, int page, boolean isAdmin) {
-        int pageSize = 45; // slots 0-44 for items, 45-53 for controls
+    private void openPaginatedList(Player player, List<Tournament> tournaments, int page) {
+        int pageSize = 45;
         int totalPages = Math.max(1, (int) Math.ceil((double) tournaments.size() / pageSize));
         int start = page * pageSize;
         int end = Math.min(start + pageSize, tournaments.size());
         List<Tournament> pageItems = tournaments.subList(start, end);
 
         Inventory inv = Bukkit.createInventory(null, 54,
-                Component.text(isAdmin ? "Manage Tournaments" : "Tournaments",
-                        NamedTextColor.DARK_AQUA));
+                Component.text("Manage Tournaments", NamedTextColor.DARK_AQUA));
 
         int slot = 0;
         for (Tournament t : pageItems) {
-            inv.setItem(slot, makeTournamentItem(t));
-            slot++;
+            inv.setItem(slot++, makeTournamentItem(t));
         }
 
-        // Navigation controls
         if (page > 0) {
             inv.setItem(45, makeItem(Material.ARROW,
                     Component.text("Previous Page", NamedTextColor.YELLOW)));
@@ -242,36 +284,27 @@ public class AdminGUI {
 
         int finalPage = page;
         player.openInventory(inv);
-        if (isAdmin) {
-            plugin.setGuiHandler(player.getUniqueId(), (p, s) ->
-                    handlePaginatedListClick(p, s, tournaments, finalPage, true));
-        }
+        plugin.setGuiHandler(player.getUniqueId(), (p, s) ->
+                handlePaginatedListClick(p, s, tournaments, finalPage));
     }
 
     private boolean handlePaginatedListClick(Player player, int slot,
-                                              List<Tournament> tournaments, int page, boolean isAdmin) {
+                                              List<Tournament> tournaments, int page) {
         int pageSize = 45;
-
         if (slot == 45 && page > 0) {
-            openPaginatedList(player, tournaments, page - 1, isAdmin);
+            openPaginatedList(player, tournaments, page - 1);
             return true;
         }
         if (slot == 53 && (page + 1) * pageSize < tournaments.size()) {
-            openPaginatedList(player, tournaments, page + 1, isAdmin);
+            openPaginatedList(player, tournaments, page + 1);
             return true;
         }
-        if (slot == 49) {
-            player.closeInventory();
-            return true;
-        }
+        if (slot == 49) { player.closeInventory(); return true; }
 
         if (slot >= 0 && slot < pageSize) {
             int index = page * pageSize + slot;
             if (index < tournaments.size()) {
-                Tournament t = tournaments.get(index);
-                if (isAdmin) {
-                    openManageTournament(player, t);
-                }
+                openManageTournament(player, tournaments.get(index));
                 return true;
             }
         }
@@ -280,14 +313,12 @@ public class AdminGUI {
 
     // ======================== MANAGE SINGLE TOURNAMENT ========================
 
-    public void openManageTournament(Player player, Tournament t) {
+    private void openManageTournament(Player player, Tournament t) {
         Inventory inv = Bukkit.createInventory(null, 27,
                 Component.text("Manage: " + t.getName(), NamedTextColor.DARK_AQUA));
 
-        // Tournament info (slot 4)
         inv.setItem(4, makeTournamentInfoItem(t));
 
-        // Actions based on state
         int slot = 10;
         if (t.getState() == TournamentState.OPEN) {
             inv.setItem(slot++, makeItem(Material.LIME_DYE,
@@ -305,7 +336,6 @@ public class AdminGUI {
                     Component.text("Cancel the tournament", NamedTextColor.GRAY)));
         }
 
-        // View options
         inv.setItem(slot++, makeItem(Material.FILLED_MAP,
                 Component.text("View Bracket / Standings", NamedTextColor.AQUA, TextDecoration.BOLD),
                 Component.text("See current bracket or standings", NamedTextColor.GRAY)));
@@ -314,7 +344,6 @@ public class AdminGUI {
                 Component.text("View Teams (" + t.getTeamCount() + ")", NamedTextColor.YELLOW, TextDecoration.BOLD),
                 Component.text("List all registered teams", NamedTextColor.GRAY)));
 
-        // Ready matches info
         if (t.getState() == TournamentState.ACTIVE) {
             List<Match> ready = manager.getReadyMatches(t.getId());
             List<Match> active = manager.getActiveMatches(t.getId());
@@ -326,48 +355,28 @@ public class AdminGUI {
         inv.setItem(26, makeItem(Material.ARROW,
                 Component.text("Back to List", NamedTextColor.YELLOW)));
 
-        Tournament finalT = t;
         player.openInventory(inv);
-        plugin.setGuiHandler(player.getUniqueId(), (p, s) -> handleManageClick(p, s, finalT));
+        plugin.setGuiHandler(player.getUniqueId(), (p, s) -> handleManageClick(p, s, t));
     }
 
     private boolean handleManageClick(Player player, int slot, Tournament t) {
-        if (slot == 26) {
-            openManageTournamentsList(player);
-            return true;
-        }
+        if (slot == 26) { openManageTournamentsList(player); return true; }
 
         int idx = 10;
         if (t.getState() == TournamentState.OPEN) {
-            if (slot == idx) {
-                promptStartTournament(player, t);
-                return true;
-            }
+            if (slot == idx) { promptStartTournament(player, t); return true; }
             idx++;
         }
         if (t.getState() == TournamentState.ACTIVE) {
-            if (slot == idx) {
-                promptForceEndTournament(player, t);
-                return true;
-            }
+            if (slot == idx) { promptForceEndTournament(player, t); return true; }
             idx++;
         }
         if (t.getState() != TournamentState.FINISHED && t.getState() != TournamentState.CANCELLED) {
-            if (slot == idx) {
-                promptCancelTournament(player, t);
-                return true;
-            }
+            if (slot == idx) { promptCancelTournament(player, t); return true; }
             idx++;
         }
-        if (slot == idx) {
-            openBracketOrStandings(player, t);
-            return true;
-        }
-        if (slot == idx + 1) {
-            openTeamList(player, t);
-            return true;
-        }
-
+        if (slot == idx) { openBracketOrStandings(player, t); return true; }
+        if (slot == idx + 1) { openTeamList(player, t); return true; }
         return false;
     }
 
@@ -394,7 +403,7 @@ public class AdminGUI {
             player.sendMessage(Component.text("Tournament '" + t.getName() + "' started!", NamedTextColor.GREEN));
             player.closeInventory();
         } else {
-            player.sendMessage(Component.text("Failed to start tournament.", NamedTextColor.RED));
+            player.sendMessage(Component.text("Failed to start tournament. Check provider availability.", NamedTextColor.RED));
         }
     }
 
@@ -408,8 +417,7 @@ public class AdminGUI {
     }
 
     private void promptCancelTournament(Player player, Tournament t) {
-        boolean success = manager.cancelTournament(t.getId());
-        if (success) {
+        if (manager.cancelTournament(t.getId())) {
             player.sendMessage(Component.text("Tournament '" + t.getName() + "' cancelled.", NamedTextColor.YELLOW));
             player.closeInventory();
         } else {
@@ -418,7 +426,6 @@ public class AdminGUI {
     }
 
     private void promptForceEndTournament(Player player, Tournament t) {
-        // Force end: set as finished with current leader
         if (t.getFormat() == TournamentFormat.SINGLE_ELIMINATION) {
             if (t.getWinnerTeamId() != null) {
                 manager.finishTournament(t.getId());
@@ -427,7 +434,6 @@ public class AdminGUI {
                 player.sendMessage(Component.text("No champion yet. Cancel instead.", NamedTextColor.RED));
             }
         } else {
-            // Swiss: use current standings
             UUID winner = SwissSystem.getWinner(t);
             if (winner != null) {
                 t.setWinnerTeamId(winner);
@@ -442,7 +448,7 @@ public class AdminGUI {
 
     // ======================== BRACKET / STANDINGS VIEW ========================
 
-    public void openBracketOrStandings(Player player, Tournament t) {
+    private void openBracketOrStandings(Player player, Tournament t) {
         if (t.getFormat() == TournamentFormat.SINGLE_ELIMINATION) {
             openBracketView(player, t);
         } else {
@@ -457,28 +463,24 @@ public class AdminGUI {
             return;
         }
 
-        // Use a 6-row inventory
-        // Each round gets a column
-        int cols = Math.min(maxRound + 1, 9); // max 9 rounds visible
+        int cols = Math.min(maxRound + 1, 9);
         Inventory inv = Bukkit.createInventory(null, 54,
                 Component.text("Bracket: " + t.getName(), NamedTextColor.DARK_AQUA));
 
-        // Round headers
         for (int round = 0; round < cols; round++) {
-            String roundName = round == maxRound ? "Finals" :
-                    round == maxRound - 1 ? "Semis" :
-                            round == maxRound - 2 ? "Quarters" :
-                                    "R" + (round + 1);
+            String roundName = round == maxRound ? "Finals"
+                    : round == maxRound - 1 ? "Semis"
+                    : round == maxRound - 2 ? "Quarters"
+                    : "R" + (round + 1);
             inv.setItem(round, makeItem(Material.PAPER,
                     Component.text(roundName, NamedTextColor.WHITE, TextDecoration.BOLD)));
         }
 
-        // Place matches grouped by round
         for (int round = 0; round < cols; round++) {
             List<Match> roundMatches = t.getRoundMatches(round);
             for (int i = 0; i < roundMatches.size() && i < 5; i++) {
                 Match m = roundMatches.get(i);
-                int slot = 9 + (round * 5) + i; // Column per round, 5 rows
+                int slot = 9 + (round * 5) + i;
                 if (slot >= 54) break;
                 inv.setItem(slot, makeMatchItem(t, m));
             }
@@ -489,33 +491,24 @@ public class AdminGUI {
 
         player.openInventory(inv);
         plugin.setGuiHandler(player.getUniqueId(), (p, s) -> {
-            if (s == 53) {
-                openManageTournament(player, t);
-                return true;
-            }
+            if (s == 53) { openManageTournament(player, t); return true; }
             return false;
         });
     }
 
     private void openSwissStandings(Player player, Tournament t) {
         List<SwissSystem.SwissStanding> standings = SwissSystem.getStandings(t);
-
         Inventory inv = Bukkit.createInventory(null, 54,
                 Component.text("Standings: " + t.getName(), NamedTextColor.DARK_AQUA));
 
-        // Header
-        inv.setItem(0, makeItem(Material.PAPER,
-                Component.text("Standings", NamedTextColor.WHITE, TextDecoration.BOLD)));
-
-        // List teams by rank
         for (int i = 0; i < Math.min(standings.size(), 45); i++) {
             SwissSystem.SwissStanding s = standings.get(i);
             TournamentTeam team = t.getTeam(s.teamId);
             String teamName = team != null ? team.getName() : "Unknown";
             String medal = i == 0 ? "1st" : i == 1 ? "2nd" : i == 2 ? "3rd" : (i + 1) + "th";
-            NamedTextColor color = i == 0 ? NamedTextColor.GOLD :
-                    i == 1 ? NamedTextColor.GRAY :
-                            i == 2 ? NamedTextColor.RED : NamedTextColor.WHITE;
+            NamedTextColor color = i == 0 ? NamedTextColor.GOLD
+                    : i == 1 ? NamedTextColor.GRAY
+                    : i == 2 ? NamedTextColor.RED : NamedTextColor.WHITE;
 
             inv.setItem(i + 9, makeItem(
                     i == 0 ? Material.GOLD_INGOT : i == 1 ? Material.IRON_INGOT : i == 2 ? Material.COPPER_INGOT : Material.PAPER,
@@ -528,10 +521,7 @@ public class AdminGUI {
 
         player.openInventory(inv);
         plugin.setGuiHandler(player.getUniqueId(), (p, s) -> {
-            if (s == 53) {
-                openManageTournament(player, t);
-                return true;
-            }
+            if (s == 53) { openManageTournament(player, t); return true; }
             return false;
         });
     }
@@ -546,15 +536,14 @@ public class AdminGUI {
         for (int i = 0; i < Math.min(teams.size(), 45); i++) {
             TournamentTeam team = teams.get(i);
             List<String> memberNames = team.getMemberNames();
-            Component displayName = Component.text((i + 1) + ". " + team.getName(), NamedTextColor.WHITE, TextDecoration.BOLD);
-
             List<Component> lore = new ArrayList<>();
             lore.add(Component.text("Members:", NamedTextColor.GRAY));
             for (String name : memberNames) {
                 lore.add(Component.text(" - " + name, NamedTextColor.GRAY));
             }
-
-            inv.setItem(i, makeItem(Material.PLAYER_HEAD, displayName, lore.toArray(new Component[0])));
+            inv.setItem(i, makeItem(Material.PLAYER_HEAD,
+                    Component.text((i + 1) + ". " + team.getName(), NamedTextColor.WHITE, TextDecoration.BOLD),
+                    lore.toArray(new Component[0])));
         }
 
         inv.setItem(53, makeItem(Material.ARROW,
@@ -562,10 +551,7 @@ public class AdminGUI {
 
         player.openInventory(inv);
         plugin.setGuiHandler(player.getUniqueId(), (p, s) -> {
-            if (s == 53) {
-                openManageTournament(player, t);
-                return true;
-            }
+            if (s == 53) { openManageTournament(player, t); return true; }
             return false;
         });
     }
@@ -592,7 +578,6 @@ public class AdminGUI {
             case FINISHED -> Material.GOLD_INGOT;
             case CANCELLED -> Material.BARRIER;
         };
-
         NamedTextColor stateColor = switch (t.getState()) {
             case OPEN -> NamedTextColor.GREEN;
             case ACTIVE -> NamedTextColor.AQUA;
@@ -602,9 +587,8 @@ public class AdminGUI {
 
         return makeItem(icon,
                 Component.text(t.getName(), NamedTextColor.WHITE, TextDecoration.BOLD),
-                Component.text("State: ", NamedTextColor.GRAY)
-                        .append(Component.text(t.getState().name(), stateColor)),
-                Component.text("Format: " + formatName(t.getFormat()) + " | Game: " + t.getGameType().name(), NamedTextColor.GRAY),
+                Component.text("State: ", NamedTextColor.GRAY).append(Component.text(t.getState().name(), stateColor)),
+                Component.text("Format: " + formatName(t.getFormat()) + " | Game: " + t.getProviderName(), NamedTextColor.GRAY),
                 Component.text("Teams: " + t.getTeamCount() + "/" + t.getMaxTeams(), NamedTextColor.GRAY),
                 Component.text("ID: " + t.getId().toString().substring(0, 8), NamedTextColor.DARK_GRAY));
     }
@@ -613,39 +597,21 @@ public class AdminGUI {
         return makeItem(Material.ENDER_EYE,
                 Component.text(t.getName(), NamedTextColor.WHITE, TextDecoration.BOLD),
                 Component.text("State: " + t.getState().name(), NamedTextColor.AQUA),
-                Component.text("Format: " + formatName(t.getFormat()) + " | Game: " + t.getGameType().name(), NamedTextColor.GRAY),
+                Component.text("Format: " + formatName(t.getFormat()) + " | Game: " + t.getProviderName(), NamedTextColor.GRAY),
                 Component.text("Teams: " + t.getTeamCount() + "/" + t.getMaxTeams(), NamedTextColor.GRAY),
                 Component.text("Team Size: " + t.getTeamSize(), NamedTextColor.GRAY),
                 Component.text("Created: " + new Date(t.getCreatedTime()).toString(), NamedTextColor.DARK_GRAY));
     }
 
     private ItemStack makeMatchItem(Tournament t, Match m) {
-        String team1Name = "???";
-        String team2Name = "???";
-        if (m.getTeam1Id() != null) {
-            TournamentTeam team = t.getTeam(m.getTeam1Id());
-            if (team != null) team1Name = team.getName();
-        } else {
-            team1Name = "(bye)";
-        }
-        if (m.getTeam2Id() != null) {
-            TournamentTeam team = t.getTeam(m.getTeam2Id());
-            if (team != null) team2Name = team.getName();
-        } else {
-            team2Name = "(bye)";
-        }
-
-        Component matchName = Component.text(team1Name + " vs " + team2Name, NamedTextColor.WHITE);
+        String team1Name = m.getTeam1Id() != null ? safeTeamName(t, m.getTeam1Id()) : "(bye)";
+        String team2Name = m.getTeam2Id() != null ? safeTeamName(t, m.getTeam2Id()) : "(bye)";
 
         List<Component> lore = new ArrayList<>();
         lore.add(Component.text("Status: " + m.getStatus().name(), statusColor(m.getStatus())));
-
         if (m.getWinnerId() != null) {
-            TournamentTeam winner = t.getTeam(m.getWinnerId());
-            String winnerName = winner != null ? winner.getName() : "???";
-            lore.add(Component.text("Winner: " + winnerName, NamedTextColor.GOLD));
+            lore.add(Component.text("Winner: " + safeTeamName(t, m.getWinnerId()), NamedTextColor.GOLD));
         }
-
         if (m.getArenaName() != null && !m.getArenaName().isEmpty()) {
             lore.add(Component.text("Arena: " + m.getArenaName(), NamedTextColor.GRAY));
         }
@@ -656,7 +622,9 @@ public class AdminGUI {
             case FINISHED -> Material.MAP;
         };
 
-        return makeItem(icon, matchName, lore.toArray(new Component[0]));
+        return makeItem(icon,
+                Component.text(team1Name + " vs " + team2Name, NamedTextColor.WHITE),
+                lore.toArray(new Component[0]));
     }
 
     // ======================== HELPERS ========================
@@ -665,14 +633,16 @@ public class AdminGUI {
         ItemStack border = makeItem(Material.GRAY_STAINED_GLASS_PANE,
                 Component.text("", NamedTextColor.GRAY));
         for (int i = 0; i < inv.getSize(); i++) {
-            if (inv.getItem(i) == null) {
-                inv.setItem(i, border);
-            }
+            if (inv.getItem(i) == null) inv.setItem(i, border);
         }
-        // Clear the center area
         for (int slot : new int[]{10, 11, 12, 13, 14, 22, 26}) {
             inv.setItem(slot, null);
         }
+    }
+
+    private static String safeTeamName(Tournament t, UUID teamId) {
+        TournamentTeam team = t.getTeam(teamId);
+        return team != null ? team.getName() : "???";
     }
 
     private static String formatName(TournamentFormat format) {
@@ -694,10 +664,8 @@ public class AdminGUI {
         for (Tournament t : manager.getAllTournaments()) {
             if (t.getId().toString().startsWith(prefix)) return t;
         }
-        // Try as full UUID
         try {
-            UUID uuid = UUID.fromString(prefix);
-            return manager.getTournament(uuid);
+            return manager.getTournament(UUID.fromString(prefix));
         } catch (IllegalArgumentException e) {
             return null;
         }
@@ -708,9 +676,13 @@ public class AdminGUI {
     private static class CreateContext {
         String name = "";
         TournamentFormat format = TournamentFormat.SINGLE_ELIMINATION;
-        GameType gameType = GameType.SPLEEF;
         int teamSize = 1;
         int maxTeams = 16;
-        String arenaName = "";
+        int providerIndex = 0;
+        List<MinigameProvider> providers;
+
+        CreateContext(List<MinigameProvider> providers) {
+            this.providers = providers;
+        }
     }
 }

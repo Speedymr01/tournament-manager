@@ -31,19 +31,6 @@
             <scope>provided</scope>
         </dependency>
 
-        <!-- Soft dependencies (provided at compile time) -->
-        <dependency>
-            <groupId>com.tdm</groupId>
-            <artifactId>spleef</artifactId>
-            <version>0.2.2</version>
-            <scope>provided</scope>
-        </dependency>
-        <dependency>
-            <groupId>com.tdm</groupId>
-            <artifactId>TeamDeathmatch</artifactId>
-            <version>1.1.0</version>
-            <scope>provided</scope>
-        </dependency>
     </dependencies>
 
     <build>
