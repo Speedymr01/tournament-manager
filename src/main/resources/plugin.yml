@@ -1,7 +1,7 @@
 name: TournamentManager
 version: ${project.version}
 main: com.tdm.tournament.TournamentPlugin
-api-version: '1.21'
+api-version: '26.1.2'
 author: Speedymr01
 description: Orchestrates tournaments using TDM and Spleef APIs
 

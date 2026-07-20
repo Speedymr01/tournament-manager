@@ -6,8 +6,10 @@ import com.tdm.tournament.gui.AdminGUI;
 import com.tdm.tournament.gui.PlayerGUI;
 import com.tdm.tournament.listener.ConnectionListener;
 import com.tdm.tournament.listener.MatchEndListener;
+import io.papermc.paper.event.player.AsyncChatEvent;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
+import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer;
 import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
@@ -16,7 +18,6 @@ import org.bukkit.event.HandlerList;
 import org.bukkit.event.Listener;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.inventory.InventoryCloseEvent;
-import org.bukkit.event.player.AsyncPlayerChatEvent;
 import org.bukkit.plugin.ServicePriority;
 import org.bukkit.plugin.java.JavaPlugin;
 
@@ -68,7 +69,7 @@ public class TournamentPlugin extends JavaPlugin implements Listener {
         getServer().getPluginManager().registerEvents(new ConnectionListener(this, tournamentManager), this);
 
         logProviders();
-        getLogger().info("TournamentManager v" + getDescription().getVersion() + " enabled!");
+        getLogger().info("TournamentManager v" + getPluginMeta().getVersion() + " enabled!");
     }
 
     @Override
@@ -162,13 +163,13 @@ public class TournamentPlugin extends JavaPlugin implements Listener {
     }
 
     @EventHandler(priority = EventPriority.HIGHEST)
-    public void onPlayerChat(AsyncPlayerChatEvent event) {
+    public void onPlayerChat(AsyncChatEvent event) {
         Player player = event.getPlayer();
         Consumer<String> handler = chatInputHandlers.get(player.getUniqueId());
         if (handler == null) return;
 
         event.setCancelled(true);
-        String message = event.getMessage();
+        String message = PlainTextComponentSerializer.plainText().serialize(event.message());
 
         getServer().getScheduler().runTask(this, () -> {
             handler.accept(message);

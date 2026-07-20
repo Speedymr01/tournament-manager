@@ -11,6 +11,11 @@ if ($env:CI) {
     $mvnArgs += "--no-transfer-progress"
 }
 
+# Force delete target folder locally to avoid locked file issues
+if (-not $env:CI) {
+    Remove-Item -Path "target" -Recurse -Force -ErrorAction SilentlyContinue
+}
+
 mvn $mvnArgs
 
 if ($LASTEXITCODE -eq 0) {
