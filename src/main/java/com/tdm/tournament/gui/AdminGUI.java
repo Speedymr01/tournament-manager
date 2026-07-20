@@ -190,7 +190,35 @@ public class AdminGUI {
                 Component.text("Game: " + currentProvider.getDisplayName(), NamedTextColor.GRAY),
                 Component.text("Team Size: " + ctx.teamSize + " | Max Teams: " + ctx.maxTeams, NamedTextColor.GRAY)));
 
+        // Fill borders FIRST so items overwrite them, not the other way around
         fillBorders(inv);
+        // Re-set the content slots after filling borders
+        inv.setItem(10, makeItem(
+                ctx.format == TournamentFormat.SINGLE_ELIMINATION ? Material.IRON_SWORD : Material.STONE_SWORD,
+                Component.text("Format: " + formatName(ctx.format), NamedTextColor.YELLOW, TextDecoration.BOLD),
+                Component.text("Click to toggle: Single Elimination / Swiss", NamedTextColor.GRAY)));
+        inv.setItem(11, makeItem(currentProvider.getIcon(),
+                Component.text("Game: " + currentProvider.getDisplayName(), NamedTextColor.YELLOW, TextDecoration.BOLD),
+                Component.text("Click to cycle through installed minigames", NamedTextColor.GRAY)));
+        inv.setItem(12, makeItem(Material.PLAYER_HEAD,
+                Component.text("Team Size: " + ctx.teamSize, NamedTextColor.YELLOW, TextDecoration.BOLD),
+                Component.text("Click to change", NamedTextColor.GRAY)));
+        inv.setItem(13, makeItem(Material.OAK_SIGN,
+                Component.text("Max Teams: " + ctx.maxTeams, NamedTextColor.YELLOW, TextDecoration.BOLD),
+                Component.text("Click to change", NamedTextColor.GRAY)));
+        inv.setItem(14, makeItem(Material.MAP,
+                Component.text("Arena: " + arenaInfo, NamedTextColor.YELLOW, TextDecoration.BOLD),
+                Component.text("Uses first available arena from provider", NamedTextColor.GRAY)));
+        inv.setItem(22, makeItem(Material.NAME_TAG,
+                Component.text("Name: " + (ctx.name.isEmpty() ? "(not set)" : ctx.name), NamedTextColor.WHITE, TextDecoration.BOLD),
+                Component.text("Type name in chat after opening", NamedTextColor.GRAY)));
+        inv.setItem(26, makeItem(Material.LIME_DYE,
+                Component.text("Create Tournament", NamedTextColor.GREEN, TextDecoration.BOLD),
+                Component.text("Name: " + (ctx.name.isEmpty() ? "NOT SET" : ctx.name), NamedTextColor.WHITE),
+                Component.text("Format: " + formatName(ctx.format), NamedTextColor.GRAY),
+                Component.text("Game: " + currentProvider.getDisplayName(), NamedTextColor.GRAY),
+                Component.text("Team Size: " + ctx.teamSize + " | Max Teams: " + ctx.maxTeams, NamedTextColor.GRAY)));
+
         player.openInventory(inv);
         plugin.setGuiHandler(player.getUniqueId(), (p, s) -> handleCreateMenuClick(p, s));
     }
