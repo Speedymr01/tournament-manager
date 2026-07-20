@@ -231,7 +231,7 @@ public class AdminGUI {
                 player.sendMessage(Component.text("Tournament '" + ctx.name + "' created! ID: "
                         + t.getId().toString().substring(0, 8), NamedTextColor.GREEN));
                 createContexts.remove(player.getUniqueId());
-                player.closeInventory();
+                openManageTournamentsList(player);
             }
             default -> { return false; }
         }
@@ -423,7 +423,7 @@ public class AdminGUI {
         if (success) {
             player.sendMessage(Component.text("Tournament '" + t.getName() + "' started!", NamedTextColor.GREEN));
             plugin.verbose("Tournament '" + t.getName() + "' started successfully");
-            player.closeInventory();
+            openManageTournament(player, t);
         } else {
             player.sendMessage(Component.text("Failed to start tournament. Check provider availability.", NamedTextColor.RED));
             plugin.verbose("Tournament '" + t.getName() + "' FAILED to start");
@@ -442,7 +442,7 @@ public class AdminGUI {
     private void promptCancelTournament(Player player, Tournament t) {
         if (manager.cancelTournament(t.getId())) {
             player.sendMessage(Component.text("Tournament '" + t.getName() + "' cancelled.", NamedTextColor.YELLOW));
-            player.closeInventory();
+            openManageTournamentsList(player);
         } else {
             player.sendMessage(Component.text("Cannot cancel a finished/cancelled tournament.", NamedTextColor.RED));
         }
@@ -466,7 +466,7 @@ public class AdminGUI {
                 player.sendMessage(Component.text("Not enough data to determine winner. Cancel instead.", NamedTextColor.RED));
             }
         }
-        player.closeInventory();
+        openManageTournament(player, t);
     }
 
     // ======================== BRACKET / STANDINGS VIEW ========================
