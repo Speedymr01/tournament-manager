@@ -62,6 +62,9 @@ public class TournamentManager {
             t.setSwissRounds(SwissSystem.calculateRounds(maxTeams));
         }
         tournaments.put(t.getId(), t);
+        plugin.verbose("Created tournament '" + name + "' (ID: " + t.getId().toString().substring(0, 8)
+                + ", format: " + format + ", provider: " + providerName
+                + ", maxTeams: " + maxTeams + ", teamSize: " + teamSize + ")");
         return t;
     }
 
@@ -132,10 +135,16 @@ public class TournamentManager {
         t.setState(TournamentState.ACTIVE);
         t.setStartedTime(System.currentTimeMillis());
 
+        plugin.verbose("Starting tournament '" + t.getName() + "' with " + t.getTeamCount() + " teams");
+
         if (t.getFormat() == TournamentFormat.SINGLE_ELIMINATION) {
             BracketGenerator.generateBracket(t);
+            int matchCount = t.getMatches().size();
+            int readyCount = BracketGenerator.getReadyMatches(t).size();
+            plugin.verbose("Bracket generated: " + matchCount + " total matches, " + readyCount + " ready to play");
         } else {
             SwissSystem.generateRound(t);
+            plugin.verbose("Swiss round generated: " + t.getRoundMatches(t.getMaxRound()).size() + " matches");
         }
 
         return true;
@@ -184,41 +193,63 @@ public class TournamentManager {
      */
     public boolean startMatch(UUID tournamentId, int matchId) {
         Tournament t = getTournament(tournamentId);
-        if (t == null) return false;
+        if (t == null) {
+            plugin.verbose("startMatch failed: tournament not found (ID: " + tournamentId + ")");
+            return false;
+        }
 
         Match match = t.getMatch(matchId);
-        if (match == null) return false;
+        if (match == null) {
+            plugin.verbose("startMatch failed: match " + matchId + " not found in tournament '" + t.getName() + "'");
+            return false;
+        }
 
         Optional<MinigameProvider> providerOpt = getProvider(t.getProviderName());
-        if (providerOpt.isEmpty() || !providerOpt.get().isEnabled()) return false;
+        if (providerOpt.isEmpty() || !providerOpt.get().isEnabled()) {
+            plugin.verbose("startMatch failed: provider '" + t.getProviderName() + "' not available");
+            return false;
+        }
 
         MinigameProvider provider = providerOpt.get();
 
         // Get players for each team
         TournamentTeam team1 = t.getTeam(match.getTeam1Id());
         TournamentTeam team2 = t.getTeam(match.getTeam2Id());
-        if (team1 == null || team2 == null) return false;
+        if (team1 == null || team2 == null) {
+            plugin.verbose("startMatch failed: team1=" + (team1 != null) + " team2=" + (team2 != null));
+            return false;
+        }
 
         List<UUID> team1Players = team1.getMembers();
         List<UUID> team2Players = team2.getMembers();
+
+        plugin.verbose("Starting match " + matchId + " in '" + t.getName()
+                + "': " + team1.getName() + " (" + team1Players.size() + " players) vs "
+                + team2.getName() + " (" + team2Players.size() + " players)");
 
         // Pick an arena (first available, or from match preference)
         List<String> arenas = provider.getAvailableArenas();
         if (arenas.isEmpty()) {
             plugin.getLogger().warning("Provider " + provider.getPluginName() + " has no arenas available!");
+            plugin.verbose("startMatch failed: no arenas from provider " + provider.getPluginName());
             return false;
         }
 
         String arena = arenas.get(0); // simple: first arena
         String matchIdStr = tournamentId + ":" + matchId;
 
+        plugin.verbose("Calling provider.createMatch(arena=" + arena + ", matchId=" + matchIdStr + ")");
         boolean created = provider.createMatch(arena, team1Players, team2Players, matchIdStr);
-        if (!created) return false;
+        if (!created) {
+            plugin.verbose("startMatch failed: provider.createMatch returned false");
+            return false;
+        }
 
         match.setStatus(MatchStatus.IN_PROGRESS);
         match.setArenaName(arena);
         activeMatches.put(match.getTeam1Id(), matchIdStr);
         activeMatches.put(match.getTeam2Id(), matchIdStr);
+        plugin.verbose("Match " + matchId + " started successfully on arena '" + arena + "'");
         return true;
     }
 
@@ -229,7 +260,10 @@ public class TournamentManager {
     public void completeMatch(String matchIdStr, List<UUID> winningPlayers, boolean tie) {
         // Parse the match ID string: "tournamentId:matchId"
         String[] parts = matchIdStr.split(":", 2);
-        if (parts.length != 2) return;
+        if (parts.length != 2) {
+            plugin.verbose("completeMatch: invalid matchIdStr '" + matchIdStr + "'");
+            return;
+        }
 
         UUID tournamentId;
         int matchId;
@@ -237,14 +271,24 @@ public class TournamentManager {
             tournamentId = UUID.fromString(parts[0]);
             matchId = Integer.parseInt(parts[1]);
         } catch (IllegalArgumentException e) {
+            plugin.verbose("completeMatch: failed to parse '" + matchIdStr + "': " + e.getMessage());
             return;
         }
 
         Tournament t = getTournament(tournamentId);
-        if (t == null) return;
+        if (t == null) {
+            plugin.verbose("completeMatch: tournament not found (ID: " + tournamentId + ")");
+            return;
+        }
 
         Match match = t.getMatch(matchId);
-        if (match == null) return;
+        if (match == null) {
+            plugin.verbose("completeMatch: match " + matchId + " not found in '" + t.getName() + "'");
+            return;
+        }
+
+        plugin.verbose("completeMatch called for '" + t.getName() + "' match " + matchId
+                + " (tie=" + tie + ", winners=" + winningPlayers.size() + " players)");
 
         // Clean up active match tracking
         activeMatches.remove(match.getTeam1Id());
@@ -253,6 +297,7 @@ public class TournamentManager {
         if (tie || winningPlayers.isEmpty()) {
             // Tie — no winner advances
             match.setStatus(MatchStatus.FINISHED);
+            plugin.verbose("Match " + matchId + " in '" + t.getName() + "' ended in a tie.");
             plugin.getLogger().info("Match " + matchId + " in " + t.getName() + " ended in a tie.");
             return;
         }
@@ -260,6 +305,7 @@ public class TournamentManager {
         // Determine which team won based on the winning players
         UUID winnerId = determineWinnerTeam(t, match, winningPlayers);
         if (winnerId == null) {
+            plugin.verbose("completeMatch: could not determine winning team for match " + matchId);
             plugin.getLogger().warning("Could not determine winning team for match " + matchId);
             match.setStatus(MatchStatus.FINISHED);
             return;
@@ -267,11 +313,13 @@ public class TournamentManager {
 
         match.setWinnerId(winnerId);
         match.setStatus(MatchStatus.FINISHED);
+        plugin.verbose("Match " + matchId + " winner: team " + winnerId.toString().substring(0, 8));
 
         // Format-specific advancement
         if (t.getFormat() == TournamentFormat.SINGLE_ELIMINATION) {
             BracketGenerator.advanceWinner(t, matchId);
             if (BracketGenerator.isComplete(t)) {
+                plugin.verbose("Tournament '" + t.getName() + "' is complete! Champion determined.");
                 finishTournament(tournamentId);
             }
         } else if (t.getFormat() == TournamentFormat.SWISS) {

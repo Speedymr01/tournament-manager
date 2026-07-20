@@ -105,6 +105,16 @@ public class TournamentPlugin extends JavaPlugin implements Listener {
         return Collections.unmodifiableList(providers);
     }
 
+    public boolean isVerboseLogging() {
+        return getConfig().getBoolean("verbose-logging", true);
+    }
+
+    public void verbose(String message) {
+        if (isVerboseLogging()) {
+            getLogger().info("[VERBOSE] " + message);
+        }
+    }
+
     public Optional<MinigameProvider> getProvider(String name) {
         for (MinigameProvider p : providers) {
             if (p.getPluginName().equalsIgnoreCase(name)

@@ -1,2 +1,5 @@
 # TournamentManager Configuration
 # Settings for tournament management
+
+# Verbose logging — set to false to reduce console spam once stable
+verbose-logging: true

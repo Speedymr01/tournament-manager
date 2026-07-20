@@ -226,6 +226,8 @@ public class AdminGUI {
                 MinigameProvider prov = ctx.providers.get(ctx.providerIndex);
                 Tournament t = manager.createTournament(
                         ctx.name, ctx.format, prov.getPluginName(), ctx.maxTeams, ctx.teamSize);
+                plugin.verbose("Admin " + player.getName() + " created tournament '" + ctx.name
+                        + "' (provider: " + prov.getPluginName() + ")");
                 player.sendMessage(Component.text("Tournament '" + ctx.name + "' created! ID: "
                         + t.getId().toString().substring(0, 8), NamedTextColor.GREEN));
                 createContexts.remove(player.getUniqueId());
@@ -337,6 +339,18 @@ public class AdminGUI {
             inv.setItem(22, makeItem(Material.CLOCK,
                     Component.text("Ready: " + ready.size() + " | Active: " + active.size(), NamedTextColor.WHITE),
                     Component.text("Matches ready to start / in progress", NamedTextColor.GRAY)));
+
+            // Add "Start Next Match" button if there are ready matches
+            if (!ready.isEmpty()) {
+                Match nextMatch = ready.get(0);
+                TournamentTeam tm1 = t.getTeam(nextMatch.getTeam1Id());
+                TournamentTeam tm2 = t.getTeam(nextMatch.getTeam2Id());
+                String matchup = (tm1 != null ? tm1.getName() : "?") + " vs " + (tm2 != null ? tm2.getName() : "?");
+                inv.setItem(24, makeItem(Material.DIAMOND_SWORD,
+                        Component.text("Start Next Match", NamedTextColor.GREEN, TextDecoration.BOLD),
+                        Component.text(matchup, NamedTextColor.WHITE),
+                        Component.text("Click to start this match", NamedTextColor.GRAY)));
+            }
         }
 
         inv.setItem(26, makeItem(Material.ARROW,
@@ -364,6 +378,25 @@ public class AdminGUI {
         }
         if (slot == idx) { openBracketOrStandings(player, t); return true; }
         if (slot == idx + 1) { openTeamList(player, t); return true; }
+
+        // Start next match button (slot 24)
+        if (slot == 24 && t.getState() == TournamentState.ACTIVE) {
+            List<Match> ready = manager.getReadyMatches(t.getId());
+            if (!ready.isEmpty()) {
+                Match next = ready.get(0);
+                plugin.verbose("Admin " + player.getName() + " starting match " + next.getId()
+                        + " in tournament '" + t.getName() + "'");
+                boolean success = manager.startMatch(t.getId(), next.getId());
+                if (success) {
+                    player.sendMessage(Component.text("Match started!", NamedTextColor.GREEN));
+                } else {
+                    player.sendMessage(Component.text("Failed to start match. Check console for details.", NamedTextColor.RED));
+                }
+                openManageTournament(player, t);
+                return true;
+            }
+        }
+
         return false;
     }
 
@@ -385,12 +418,15 @@ public class AdminGUI {
             return;
         }
 
+        plugin.verbose("Admin " + player.getName() + " is starting tournament '" + t.getName() + "'");
         boolean success = manager.startTournament(t.getId());
         if (success) {
             player.sendMessage(Component.text("Tournament '" + t.getName() + "' started!", NamedTextColor.GREEN));
+            plugin.verbose("Tournament '" + t.getName() + "' started successfully");
             player.closeInventory();
         } else {
             player.sendMessage(Component.text("Failed to start tournament. Check provider availability.", NamedTextColor.RED));
+            plugin.verbose("Tournament '" + t.getName() + "' FAILED to start");
         }
     }
 
