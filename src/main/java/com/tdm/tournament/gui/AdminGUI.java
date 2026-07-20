@@ -288,7 +288,7 @@ public class AdminGUI {
             openPaginatedList(player, tournaments, page + 1);
             return true;
         }
-        if (slot == 49) { player.closeInventory(); return true; }
+        if (slot == 49) { openMainMenu(player); return true; }
 
         if (slot >= 0 && slot < pageSize) {
             int index = page * pageSize + slot;
