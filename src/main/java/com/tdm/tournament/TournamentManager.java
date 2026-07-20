@@ -295,10 +295,12 @@ public class TournamentManager {
         activeMatches.remove(match.getTeam2Id());
 
         if (tie || winningPlayers.isEmpty()) {
-            // Tie — no winner advances
-            match.setStatus(MatchStatus.FINISHED);
-            plugin.verbose("Match " + matchId + " in '" + t.getName() + "' ended in a tie.");
-            plugin.getLogger().info("Match " + matchId + " in " + t.getName() + " ended in a tie.");
+            // Tie — no winner advances; reset match to PENDING so it can be replayed
+            match.setStatus(MatchStatus.PENDING);
+            match.setWinnerId(null);
+            match.setArenaName(null);
+            plugin.verbose("Match " + matchId + " in '" + t.getName() + "' ended in a tie — reset to PENDING for replay.");
+            plugin.getLogger().info("Match " + matchId + " in " + t.getName() + " ended in a tie. Match reset to PENDING — click Start Next Match to replay.");
             return;
         }
 
