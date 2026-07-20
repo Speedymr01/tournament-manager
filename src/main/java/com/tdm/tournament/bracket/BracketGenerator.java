@@ -26,7 +26,7 @@ public class BracketGenerator {
         List<TournamentTeam> teams = new ArrayList<>(tournament.getTeams());
 
         // Remove existing matches before regenerating
-        tournament.getMatches().clear();
+        tournament.clearMatches();
 
         int numTeams = teams.size();
         if (numTeams < 2) return;

@@ -202,7 +202,7 @@ public class AdminGUI {
                 renderCreateMenu(player);
             }
             case 13 -> {
-                int[] options = {4, 8, 16, 32, 64};
+                int[] options = {2, 4, 8, 16, 32, 64};
                 int idx = 0;
                 for (int i = 0; i < options.length; i++) {
                     if (options[i] == ctx.maxTeams) { idx = (i + 1) % options.length; break; }

@@ -112,6 +112,10 @@ public class Tournament {
 
     // --- Match management ---
 
+    public void clearMatches() {
+        matches.clear();
+    }
+
     public void addMatch(Match match) {
         matches.add(match);
     }
