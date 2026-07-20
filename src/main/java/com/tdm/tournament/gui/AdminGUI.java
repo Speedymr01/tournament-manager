@@ -146,53 +146,12 @@ public class AdminGUI {
         if (ctx == null) return;
 
         Inventory inv = Bukkit.createInventory(null, 27, TITLE_CREATE);
-
-        // Slot 10: Format
-        inv.setItem(10, makeItem(
-                ctx.format == TournamentFormat.SINGLE_ELIMINATION ? Material.IRON_SWORD : Material.STONE_SWORD,
-                Component.text("Format: " + formatName(ctx.format), NamedTextColor.YELLOW, TextDecoration.BOLD),
-                Component.text("Click to toggle: Single Elimination / Swiss", NamedTextColor.GRAY)));
-
-        // Slot 11: Provider / Minigame selection
         MinigameProvider currentProvider = ctx.providers.get(ctx.providerIndex);
-        inv.setItem(11, makeItem(currentProvider.getIcon(),
-                Component.text("Game: " + currentProvider.getDisplayName(), NamedTextColor.YELLOW, TextDecoration.BOLD),
-                Component.text("Click to cycle through installed minigames", NamedTextColor.GRAY)));
+        String arenaInfo = currentProvider.getAvailableArenas().isEmpty()
+                ? "Auto" : currentProvider.getAvailableArenas().get(0);
 
-        // Slot 12: Team size
-        inv.setItem(12, makeItem(Material.PLAYER_HEAD,
-                Component.text("Team Size: " + ctx.teamSize, NamedTextColor.YELLOW, TextDecoration.BOLD),
-                Component.text("Click to change", NamedTextColor.GRAY)));
-
-        // Slot 13: Max teams
-        inv.setItem(13, makeItem(Material.OAK_SIGN,
-                Component.text("Max Teams: " + ctx.maxTeams, NamedTextColor.YELLOW, TextDecoration.BOLD),
-                Component.text("Click to change", NamedTextColor.GRAY)));
-
-        // Slot 14: Arena info
-        MinigameProvider prov = ctx.providers.get(ctx.providerIndex);
-        String arenaInfo = prov.getAvailableArenas().isEmpty()
-                ? "Auto" : prov.getAvailableArenas().get(0);
-        inv.setItem(14, makeItem(Material.MAP,
-                Component.text("Arena: " + arenaInfo, NamedTextColor.YELLOW, TextDecoration.BOLD),
-                Component.text("Uses first available arena from provider", NamedTextColor.GRAY)));
-
-        // Slot 22: Name
-        inv.setItem(22, makeItem(Material.NAME_TAG,
-                Component.text("Name: " + (ctx.name.isEmpty() ? "(not set)" : ctx.name), NamedTextColor.WHITE, TextDecoration.BOLD),
-                Component.text("Type name in chat after opening", NamedTextColor.GRAY)));
-
-        // Slot 26: Create
-        inv.setItem(26, makeItem(Material.LIME_DYE,
-                Component.text("Create Tournament", NamedTextColor.GREEN, TextDecoration.BOLD),
-                Component.text("Name: " + (ctx.name.isEmpty() ? "NOT SET" : ctx.name), NamedTextColor.WHITE),
-                Component.text("Format: " + formatName(ctx.format), NamedTextColor.GRAY),
-                Component.text("Game: " + currentProvider.getDisplayName(), NamedTextColor.GRAY),
-                Component.text("Team Size: " + ctx.teamSize + " | Max Teams: " + ctx.maxTeams, NamedTextColor.GRAY)));
-
-        // Fill borders FIRST so items overwrite them, not the other way around
+        // Fill borders first, then overlay content slots
         fillBorders(inv);
-        // Re-set the content slots after filling borders
         inv.setItem(10, makeItem(
                 ctx.format == TournamentFormat.SINGLE_ELIMINATION ? Material.IRON_SWORD : Material.STONE_SWORD,
                 Component.text("Format: " + formatName(ctx.format), NamedTextColor.YELLOW, TextDecoration.BOLD),
