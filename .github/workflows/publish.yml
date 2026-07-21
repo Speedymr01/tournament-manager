@@ -1,4 +1,4 @@
-name: Build and publish to GitHub Releases
+name: Publish to Modrinth and GitHub Releases
 
 on:
   push:
@@ -30,6 +30,43 @@ jobs:
         with:
           name: plugin
           path: target/*.jar
+
+  publish-modrinth:
+    runs-on: ubuntu-latest
+    needs: build
+    if: "endsWith(github.ref_name, '.0')"
+    # Only publish to Modrinth for minor/major versions (v1.1.0, v2.0.0), not patch (v1.0.1)
+
+    steps:
+      - name: Download artifact
+        uses: actions/download-artifact@v8
+        with:
+          name: plugin
+          path: plugin
+
+      - name: Find JAR file
+        id: findjar
+        shell: bash
+        run: |
+          cd plugin
+          echo "jar=$(ls *.jar | head -1)" >> $GITHUB_OUTPUT
+      
+      - name: Upload to Modrinth
+        uses: RubixDev/modrinth-upload@v1
+        with:
+          token: ${{ secrets.MODRINTH_TOKEN }}
+          file_path: plugin/${{ steps.findjar.outputs.jar }}
+          name: ${{ github.ref_name }}
+          version: ${{ github.ref_name }}
+          changelog: ""
+          relations: ""
+          game_versions: ["26.1.2"]
+          release_type: release
+          loaders: paper
+          featured: false
+          project_id: ${{ secrets.MODRINTH_SLUG }}
+          staging: false
+          new_project_body: ""
 
   github-release:
     runs-on: ubuntu-latest

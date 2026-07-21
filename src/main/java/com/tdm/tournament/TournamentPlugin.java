@@ -105,6 +105,10 @@ public class TournamentPlugin extends JavaPlugin implements Listener {
         return Collections.unmodifiableList(providers);
     }
 
+    public AdminGUI getAdminGUI() {
+        return adminGUI;
+    }
+
     public boolean isVerboseLogging() {
         return getConfig().getBoolean("verbose-logging", true);
     }
@@ -153,6 +157,29 @@ public class TournamentPlugin extends JavaPlugin implements Listener {
 
         BiFunction<Player, Integer, Boolean> handler = guiHandlers.get(player.getUniqueId());
         if (handler == null) return;
+
+        // Only handle clicks in inventory titles created by this plugin.
+        // Parse the component title to plain text to avoid color-code interference from getTitle().
+        Component viewTitle = event.getView().title();
+        String plainTitle = viewTitle != null
+                ? PlainTextComponentSerializer.plainText().serialize(viewTitle)
+                : null;
+        if (plainTitle == null || (!plainTitle.startsWith("Tournament Admin")
+                && !plainTitle.startsWith("Create Tournament")
+                && !plainTitle.startsWith("Manage Tournaments")
+                && !plainTitle.startsWith("Manage: ")
+                && !plainTitle.startsWith("Installed Minigames")
+                && !plainTitle.startsWith("Bracket: ")
+                && !plainTitle.startsWith("Standings: ")
+                && !plainTitle.startsWith("Teams: ")
+                && !plainTitle.startsWith("Open Tournaments")
+                && !plainTitle.startsWith("My Matches")
+                && !plainTitle.startsWith("Match History")
+                && !plainTitle.startsWith("Tournament Details"))) {
+            // Not one of our inventories — remove stale handler
+            guiHandlers.remove(player.getUniqueId());
+            return;
+        }
 
         event.setCancelled(true);
 

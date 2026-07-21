@@ -95,7 +95,7 @@ public class AdminGUI {
                 lore.toArray(new Component[0]));
     }
 
-    private void openInstalledMinigames(Player player) {
+    public void openInstalledMinigames(Player player) {
         Inventory inv = Bukkit.createInventory(null, 27,
                 Component.text("Installed Minigames", NamedTextColor.DARK_AQUA));
 
@@ -108,6 +108,7 @@ public class AdminGUI {
             for (MinigameProvider p : providers) {
                 List<String> arenas = p.getAvailableArenas();
                 List<Component> lore = new ArrayList<>();
+                lore.add(Component.text("Click to configure", NamedTextColor.AQUA));
                 lore.add(Component.text("Plugin: " + p.getPluginName(), NamedTextColor.GRAY));
                 lore.add(Component.text("Arenas: " + (arenas.isEmpty() ? "(auto)" : String.join(", ", arenas)), NamedTextColor.GRAY));
                 lore.add(Component.text("Status: ", NamedTextColor.GRAY)
@@ -125,6 +126,14 @@ public class AdminGUI {
         player.openInventory(inv);
         plugin.setGuiHandler(player.getUniqueId(), (p, s) -> {
             if (s == 26) { openMainMenu(player); return true; }
+            // Click on a minigame to open its config menu
+            if (s >= 10 && s < 10 + providers.size()) {
+                int index = s - 10;
+                if (index < providers.size()) {
+                    providers.get(index).openConfigMenu(player);
+                    return true;
+                }
+            }
             return false;
         });
     }

@@ -60,4 +60,15 @@ public interface MinigameProvider {
      * @param matchId the tournament-assigned match ID passed to {@link #createMatch}
      */
     void cancelMatch(String matchId);
+
+    /**
+     * Open a configuration menu for this minigame.
+     * Override this to allow admins to edit config values in-game.
+     * Default implementation sends a message that no config is available.
+     */
+    default void openConfigMenu(org.bukkit.entity.Player player) {
+        player.sendMessage(net.kyori.adventure.text.Component.text(
+                "No in-game config available for " + getDisplayName(),
+                net.kyori.adventure.text.format.NamedTextColor.RED));
+    }
 }
